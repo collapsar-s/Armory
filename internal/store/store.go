@@ -37,7 +37,7 @@ var overrideDir string
 func SetDataDirForTest(dir string) { overrideDir = dir }
 
 // New 打开（或初始化）~/.armory/tools.json 并返回 Store。
-// 文件不存在时会写入一份带默认分类与设置的数据文件；
+// 文件不存在时会写入一份「空工具库 + 默认设置」的数据文件（不含任何默认分类）；
 // 文件存在但解析失败会返回错误（不静默覆盖用户数据）。
 func New() (*Store, error) {
 	s := &Store{path: filepath.Join(DataDir(), "tools.json")}
@@ -137,14 +137,10 @@ func (s *Store) saveLocked() error {
 }
 
 // DefaultCategories 返回首次启动时的默认分类。
-// ID 方案与原版一致："cat-" + 名称；目录不写 Kind（空值即视作 dir，与原版 JSON 输出一致）。
+// 首次启动不再内置任何默认分类：返回空列表，全部由用户自行创建。
+// 仍保留该函数作为初始化入口（load/ReplaceAll 调用点不变），只是内容为空。
 func DefaultCategories() []model.Category {
-	names := []string{"信息收集", "漏洞利用", "代理隧道", "开发日常"}
-	out := make([]model.Category, 0, len(names))
-	for i, n := range names {
-		out = append(out, model.Category{ID: "cat-" + n, Name: n, Order: float64(i)})
-	}
-	return out
+	return []model.Category{}
 }
 
 // ---------- 读路径 ----------

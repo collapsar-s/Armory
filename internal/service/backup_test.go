@@ -67,7 +67,7 @@ func TestBackupRoundTrip(t *testing.T) {
 		t.Errorf("工具字段不一致: %+v", got)
 	}
 	cats := reg2.ListCategories()
-	// 源库 = 默认 4 分类 + 「测试分类」；「干扰分类」应被覆盖消失
+	// 源库仅含「测试分类」（无默认分类）；「干扰分类」应被覆盖消失
 	found := false
 	for _, c := range cats {
 		if c.ID == cat.ID && c.Name == "测试分类" {

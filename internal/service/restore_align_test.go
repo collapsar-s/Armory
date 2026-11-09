@@ -54,13 +54,19 @@ func TestAddToolPathValidation(t *testing.T) {
 func TestDeleteCategoryGuard(t *testing.T) {
 	api, reg := newTestAPI(t)
 
-	// 仅剩默认分类时可删到只剩一个，但删最后一个被拒绝。
-	cats := reg.ListCategories()
-	if len(cats) != 4 {
-		t.Fatalf("默认应有 4 个分类，得到 %d", len(cats))
+	// 首次启动无默认分类：显式创建若干分类，保证后续「删到只剩一个」有可删对象。
+	parent, err := api.AddCategory("守卫父")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddCategory("守卫二"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.AddCategory("守卫三"); err != nil {
+		t.Fatal(err)
 	}
 	// 建一个子分类，往里放一个工具，删掉子分类后工具应归入父级。
-	sub, err := api.AddSubCategory(cats[0].ID, "子分类")
+	sub, err := api.AddSubCategory(parent.ID, "子分类")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,8 +82,8 @@ func TestDeleteCategoryGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CategoryID != cats[0].ID {
-		t.Errorf("删除子分类后工具应归入上级 %q，得到 %q", cats[0].ID, got.CategoryID)
+	if got.CategoryID != parent.ID {
+		t.Errorf("删除子分类后工具应归入上级 %q，得到 %q", parent.ID, got.CategoryID)
 	}
 
 	// 逐个删除，最后一个应被拒绝。
@@ -262,24 +268,12 @@ func TestLauncherMissingPath(t *testing.T) {
 	}
 }
 
-// TestDefaultCategoriesMatchOriginal 默认分类与原版一致（信息收集/漏洞利用/代理隧道/开发日常）。
-func TestDefaultCategoriesMatchOriginal(t *testing.T) {
+// TestNoDefaultCategories 首次启动不应内置任何默认分类（全部由用户自行创建）。
+func TestNoDefaultCategories(t *testing.T) {
 	_, reg := newTestAPI(t)
 	cats := reg.ListCategories()
-	want := []string{"信息收集", "漏洞利用", "代理隧道", "开发日常"}
-	if len(cats) != len(want) {
-		t.Fatalf("默认分类数量应为 %d，得到 %d", len(want), len(cats))
-	}
-	for i, c := range cats {
-		if c.Name != want[i] || c.ID != "cat-"+want[i] {
-			t.Errorf("默认分类[%d] 应为 %s(cat-%s)，得到 %s(%s)", i, want[i], want[i], c.Name, c.ID)
-		}
-	}
-	// 目录不应写 kind（与原版 JSON 输出一致）。
-	for _, c := range cats {
-		if c.Kind != "" {
-			t.Errorf("默认目录 kind 应为空，得到 %q", c.Kind)
-		}
+	if len(cats) != 0 {
+		t.Fatalf("首次启动不应有默认分类，得到 %d 个: %+v", len(cats), cats)
 	}
 }
 
@@ -400,10 +394,11 @@ func TestExtractIconRealBundle(t *testing.T) {
 	}
 }
 
-// TestImportRejectsMissingCategories 备份包缺少分类数据时应拒绝（原版文案）。
-func TestImportRejectsMissingCategories(t *testing.T) {
+// TestImportRejectsNonArmoryZip 非 Armory 结构的备份包（tools.json 顶层不含 Tools 字段）
+// 应被拒绝；分类为空则是合法备份（新版本不内置默认分类）。
+func TestImportRejectsNonArmoryZip(t *testing.T) {
 	_, reg := newTestAPI(t)
-	zipPath := filepath.Join(t.TempDir(), "no-cats.zip")
+	zipPath := filepath.Join(t.TempDir(), "not-armory.zip")
 	f, err := os.Create(zipPath)
 	if err != nil {
 		t.Fatal(err)
@@ -413,21 +408,19 @@ func TestImportRejectsMissingCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.Write([]byte(`{"Tools":[],"Categories":[],"Settings":{}}`))
+	w.Write([]byte(`{"hello":"world"}`))
 	zw.Close()
 	f.Close()
 
-	if err := reg.restoreBackup(zipPath); err == nil || !strings.Contains(err.Error(), "备份包缺少分类数据") {
-		t.Errorf("缺少分类数据应报「备份包缺少分类数据」，得到 %v", err)
+	if err := reg.restoreBackup(zipPath); err == nil || !strings.Contains(err.Error(), "不是有效的 Armory 备份") {
+		t.Errorf("非 Armory 备份应被拒绝，得到 %v", err)
 	}
 }
 
 // TestReorderCategories 分类拖拽排序：按给定 id 顺序写 Order，未提及的保持原值。
 func TestReorderCategories(t *testing.T) {
 	api, _ := newTestAPI(t)
-	if _, err := api.AddCategory("排序A"); err != nil {
-		t.Fatal(err)
-	}
+	// 创建顺序决定初始 Order：B=0, C=1, A=2（A 最后建、Order 最大，作为「未提及保持原值」的对照）。
 	b, err := api.AddCategory("排序B")
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +429,10 @@ func TestReorderCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 把 C 排到最前，B 其次，A 不提及（保持原值）
+	if _, err := api.AddCategory("排序A"); err != nil {
+		t.Fatal(err)
+	}
+	// 把 C 排到最前，B 其次，A 不提及（保持原值 2）
 	if err := api.ReorderCategories([]string{c.ID, b.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -564,8 +560,15 @@ func TestUpdateToolKeepsArgsOnDrag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cats := api.ListCategories()
-	target := cats[1].ID
+	// 首次启动无默认分类：显式创建两个分类，取第二个作为拖拽目标。
+	if _, err := api.AddCategory("拖拽目标一"); err != nil {
+		t.Fatal(err)
+	}
+	cat2, err := api.AddCategory("拖拽目标二")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := cat2.ID
 
 	out, err := api.UpdateTool(tool.ID, "", "", "", "", nil, false, target, "", "")
 	if err != nil {

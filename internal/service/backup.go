@@ -2,6 +2,7 @@ package service
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -167,8 +168,15 @@ func (r *Registry) restoreBackup(zipPath string) error {
 	if err := jsonUnmarshal(dataBytes, &d); err != nil {
 		return fmt.Errorf("备份数据解析失败: %w", err)
 	}
-	if len(d.Categories) == 0 {
-		return fmt.Errorf("备份包缺少分类数据")
+	// 校验这是 Armory 备份：tools.json 顶层必须包含 Tools 字段（空数组也算）。
+	// 新版本不再内置默认分类，因此 Categories 允许为空——不能再用「无分类」判无效备份，
+	// 否则零分类用户的自身备份将无法还原。用 Tools 键是否存在来挡掉非 Armory 的 zip。
+	var probe map[string]json.RawMessage
+	if err := jsonUnmarshal(dataBytes, &probe); err != nil {
+		return fmt.Errorf("备份数据解析失败: %w", err)
+	}
+	if _, ok := probe["Tools"]; !ok {
+		return fmt.Errorf("备份包缺少工具数据，不是有效的 Armory 备份")
 	}
 	// 覆盖前自动留底：当前数据快照写 tools.json.bak-<时间戳>，误还原可手捞回来。
 	if snap, err := jsonMarshalIndent(r.Snapshot()); err == nil {

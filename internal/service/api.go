@@ -110,7 +110,8 @@ func (a *API) AddToolByPath(path, categoryID, name, args, jvmArgs, envVersion st
 	t.JvmArgs = strings.TrimSpace(jvmArgs)
 	t.EnvVersion = strings.TrimSpace(envVersion) // 空=系统默认；非空=采用全局设置的指定版本
 	if t.CategoryID == "" {
-		// 拖拽收录时前端在"全部"视图下传空分类，归入第一个**顶层目录**（默认分类）。
+		// 拖拽收录时前端在"全部"视图下传空分类，归入第一个**顶层目录**（用户创建的分类）。
+		// 首次启动无默认分类时可能为空串——此时工具暂不归属任何分类，显示在「全部」。
 		// 注意不能取 ListCategories()[0] 就完事——树序里也可能是顶层 title，需显式挑 dir。
 		t.CategoryID = firstTopDirCategoryID(a.reg.ListCategories())
 	}

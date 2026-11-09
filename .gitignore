@@ -3,6 +3,7 @@
 
 # 忽略编译产物
 build/
+bin/
 armory
 armory.dmg
 
@@ -17,5 +18,10 @@ recovered/
 # 忽略前端依赖（如果有的话）
 frontend/node_modules/
 
-bin/
+# 忽略 Vim 临时文件
+*.swp
+*.swo
+*~
+
+# 忽略ai缓存目录
 .workbuddy/

@@ -25,3 +25,6 @@ frontend/node_modules/
 
 # 忽略ai缓存目录
 .workbuddy/
+
+# 旧版本文件
+old/

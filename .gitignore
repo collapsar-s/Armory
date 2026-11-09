@@ -1,0 +1,21 @@
+# 忽略 Mac 系统文件
+.DS_Store
+
+# 忽略编译产物
+build/
+armory
+armory.dmg
+
+# 忽略 IDE 配置
+.idea/
+.zcode/
+
+# 忽略缓存
+.pnpm-store/
+recovered/
+
+# 忽略前端依赖（如果有的话）
+frontend/node_modules/
+
+bin/
+.workbuddy/

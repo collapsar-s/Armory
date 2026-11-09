@@ -1,0 +1,85 @@
+version: '3'
+
+# Armory 精简构建脚本（仅 macOS）。基于 wails3 官方 Taskfile 精简而来，
+# 去掉 windows/linux/ios/android 跨平台分支与图标自动生成（已内置原版 icons.icns）。
+#
+# 用法（环境变量见 docs/CONVENTIONS.md 第7节）：
+#   task build        # 构建前端 + 编译 bin/armory（darwin 原生）
+#   task package      # 生成 bin/armory.app 并 ad-hoc 签名
+#   task dmg          # 在 package 基础上生成 bin/armory.dmg（需 hdiutil 权限）
+#   task run          # 构建 .dev.app 并运行
+#   task dev          # wails3 dev 热重载
+
+vars:
+  APP_NAME: "armory"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  frontend:deps:
+    dir: frontend
+    # 注意：pnpm 10+ 在本沙箱下会因 esbuild 安装脚本审批返回非零码，
+    # 但依赖其实已装好（构建用 ./node_modules/.bin/vite）。故用 || true 容忍此告警，
+    # 仅当 node_modules 确实缺失时才真正需要它。
+    cmds:
+      - pnpm install --config.confirmModulesPurge=false || true
+
+  frontend:build:
+    dir: frontend
+    deps: [frontend:deps]
+    cmds:
+      - ./node_modules/.bin/vite build
+
+  generate:bindings:
+    summary: 生成前端官方 bindings
+    sources:
+      - "internal/**/*.go"
+      - go.mod
+    generates:
+      - frontend/src/bindings/**/*
+    cmds:
+      - wails3 generate bindings -d frontend/src/bindings -ts -i
+
+  build:
+    summary: 构建前端并编译 darwin 原生二进制
+    deps: [frontend:build]
+    cmds:
+      - go build -tags "production,private_mac_apis" -trimpath -buildvcs=false -ldflags="-w -s" -o "{{.BIN_DIR}}/{{.APP_NAME}}"
+    env:
+      CGO_ENABLED: 1
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+
+  package:
+    summary: 打包为 bin/armory.app 并 ad-hoc 签名
+    deps: [build]
+    cmds:
+      - task: create:app:bundle
+
+  create:app:bundle:
+    cmds:
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+      - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
+      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
+      - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
+      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.app"
+
+  dmg:
+    summary: 打包为 bin/armory.dmg（需 hdiutil 权限；沙箱下用 escalated 权限运行）
+    deps: [package]
+    cmds:
+      - wails3 tool package --format dmg --name "{{.APP_NAME}}" --out "{{.BIN_DIR}}" --background "build/darwin/dmg-background.png" --volume-icon "build/darwin/icons.icns" --file-icon "build/darwin/dmg-file-icon.icns" --window-width "540" --window-height "380"
+
+  run:
+    cmds:
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+      - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
+      - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
+      - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
+      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
+      - '"{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
+
+  dev:
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
